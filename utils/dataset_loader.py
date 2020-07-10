@@ -1,4 +1,11 @@
+#
+# from: https://www.tensorflow.org/tutorials/load_data/images
+#
+
 import tensorflow as tf
+import pathlib
+import os
+import numpy as np
 
 class DatasetLoader:
     """ Helper for load the dataset using tf.Dataset class """
@@ -14,7 +21,11 @@ class DatasetLoader:
         self.cache_file = cache_file
         self.AUTOTUNE = tf.data.experimental.AUTOTUNE
         
-        list_ds = tf.data.Dataset.list_files(str(path_dir+'/*'))
+        # list_ds = tf.data.Dataset.list_files(str(path_dir+'/*'))
+        data_dir = pathlib.Path(path_dir)
+        list_ds = tf.data.Dataset.list_files(str(data_dir/'*/*'))
+        self.CLASS_NAMES = np.array([item.name for item in data_dir.glob('*') if item.name != "LICENSE.txt"])
+
         labeled_ds = list_ds.map(self.process_path, num_parallel_calls=self.AUTOTUNE)
         self.train_ds = self.prepare_for_training(labeled_ds, cache=self.cache_file)
 
@@ -27,13 +38,22 @@ class DatasetLoader:
         return tf.image.resize(img, [self.resolution, self.resolution])
 
     def process_path(self, file_path):
+        label = self._get_label(file_path)
         # load the raw data from the file as a string
         img = tf.io.read_file(file_path)
-        return self.decode_img(img)
+        return self.decode_img(img), label
+
+    def _get_label(self, file_path):
+        # convert the path to a list of path components
+        parts = tf.strings.split(file_path, os.path.sep)
+        # The second to last is the class-directory
+        label = parts[-2] == self.CLASS_NAMES
+        label = tf.cast(label, dtype='float32')
+        return label
     
     def get_batch(self):
-        images = next(iter(self.train_ds))
-        return tf.transpose(images, [0, 3, 1, 2]) 
+        images, label = next(iter(self.train_ds))
+        return tf.transpose(images, [0, 3, 1, 2]), label 
 
     def prepare_for_training(self, ds, cache=True, shuffle_buffer_size=100):
       # use `.cache(filename)` to cache preprocessing work for datasets that don't

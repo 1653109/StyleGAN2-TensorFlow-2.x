@@ -7,7 +7,7 @@ class StyleGan2(tf.keras.Model):
     """ 
     StyleGan2 config f for tensorflow 2.x 
     """
-    def __init__(self, resolution=1024, weights=None, impl='cuda', gpu=True, **kwargs):
+    def __init__(self, resolution=1024, weights=None, impl='cuda', gpu=True, labels_dim=0, **kwargs):
         """
         Parameters
         ----------
@@ -27,12 +27,13 @@ class StyleGan2(tf.keras.Model):
         super(StyleGan2, self).__init__(**kwargs)
         
         self.resolution = resolution
+        self.labels_dim = labels_dim
         if weights is not None:
             self.__adjust_resolution(weights)
         self.generator = StyleGan2Generator(resolution=self.resolution, weights=weights, 
-                                            impl=impl, gpu=gpu, name='Generator')
+                                            impl=impl, gpu=gpu, labels_dim=self.labels_dim, name='Generator')
         self.discriminator = StyleGan2Discriminator(resolution=self.resolution, weights=weights, 
-                                                    impl=impl, gpu=gpu, name='Discriminator')
+                                                    impl=impl, gpu=gpu, labels_dim=self.labels_dim, name='Discriminator')
         
     def call(self, latent_vector):
         """

@@ -1,16 +1,16 @@
 import numpy as np
 
-available_weights = ['ffhq', 'car', 'cat', 'church', 'horse']
+available_weights = ['ffhq', 'car', 'cat', 'church', 'horse', 'logo']
 weights_stylegan2_dir = 'weights/'
 
-mapping_weights = [ 'Dense0/weight', 'Dense0/bias',
+mapping_weights = [ 'LabelConcat/weight', 'Dense0/weight', 'Dense0/bias',
                     'Dense1/weight', 'Dense1/bias',
                     'Dense2/weight', 'Dense2/bias',
                     'Dense3/weight', 'Dense3/bias',
                     'Dense4/weight', 'Dense4/bias',
                     'Dense5/weight', 'Dense5/bias',
                     'Dense6/weight', 'Dense6/bias',
-                    'Dense7/weight', 'Dense7/bias']
+                    'Dense7/weight', 'Dense7/bias',]
 
 def get_synthesis_name_weights(resolution):
     synthesis_weights = ['4x4/Const/const',
@@ -176,7 +176,8 @@ synthesis_weights = {
     'car' : synthesis_weights_512,
     'cat' : synthesis_weights_256,
     'horse' : synthesis_weights_256,
-    'church' : synthesis_weights_256
+    'church' : synthesis_weights_256,
+    'logo': synthesis_weights_256
     }
 
 discriminator_weights = {
@@ -184,5 +185,6 @@ discriminator_weights = {
     'car' : discriminator_weights_512,
     'cat' : discriminator_weights_256,
     'horse' : discriminator_weights_256,
-    'church' : discriminator_weights_256
+    'church' : discriminator_weights_256,
+    'logo': discriminator_weights_256
     }

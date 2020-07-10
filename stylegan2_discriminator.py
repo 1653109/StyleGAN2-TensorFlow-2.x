@@ -13,7 +13,7 @@ class StyleGan2Discriminator(tf.keras.layers.Layer):
     """
     StyleGan2 discriminator config f for tensorflow 2.x 
     """
-    def __init__(self, resolution=1024, weights=None, impl='cuda', gpu=True, **kwargs):
+    def __init__(self, resolution=1024, weights=None, impl='cuda', gpu=True, labels_dim=0, **kwargs):
         """
         Parameters
         ----------
@@ -34,10 +34,12 @@ class StyleGan2Discriminator(tf.keras.layers.Layer):
     
         self.gpu = gpu
         self.impl = impl
+
+        self.labels_dim = labels_dim
     
         self.resolution = resolution
         if weights is not None: self.__adjust_resolution(weights)
-        self.resolution_log2 = int(np.log2(resolution))
+        self.resolution_log2 = int(np.log2(self.resolution))
         
         # load weights
         if weights is not None:
@@ -63,9 +65,11 @@ class StyleGan2Discriminator(tf.keras.layers.Layer):
         self.conv_4_4_bias = self.add_weight(name='4x4/Conv/bias', shape=(512,),
                                              initializer=tf.random_normal_initializer(0,1), trainable=True)
         self.dense_4_4 = DenseLayer(fmaps=512, name='4x4/Dense0')
-        self.dense_output = DenseLayer(fmaps=1, name='Output')
+
+        # Output layer with label conditioning from "Which Training Methods for GANs do actually Converge?"
+        self.dense_output = DenseLayer(fmaps=max(self.labels_dim, 1), name='Output')
     
-    def call(self, y):
+    def call(self, y, labels_in=None, training=None):
         """
 
         Parameters
@@ -97,8 +101,11 @@ class StyleGan2Discriminator(tf.keras.layers.Layer):
         # dense layer
         x = self.dense_4_4(x)
         x = tf.math.multiply(tf.nn.leaky_relu(x, 0.2), tf.math.sqrt(2.))
-        #output layer
+        # Output layer with label conditioning from "Which Training Methods for GANs do actually Converge?"
         x = self.dense_output(x)
+        if labels_in is not None and self.labels_dim > 0:
+            assert labels_in.shape[1] == self.labels_dim
+            x = tf.reduce_sum(x * labels_in, axis=1, keepdims=True)
         
         return tf.identity(x, name='scores_out')
     
@@ -115,7 +122,7 @@ class StyleGan2Discriminator(tf.keras.layers.Layer):
             self.resolution = 1024
         elif weights_name == 'car': 
             self.resolution = 512
-        elif weights_name in ['cat', 'church', 'horse']: 
+        elif weights_name in ['cat', 'church', 'horse', 'logo']: 
             self.resolution = 256
     
     def __load_weights(self, weights_name):

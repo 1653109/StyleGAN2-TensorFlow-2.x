@@ -1,5 +1,21 @@
 import tensorflow as tf
 import numpy as np
+from typing import Any, List, Tuple, Union
+
+class EasyDict(dict):
+    """Convenience class that behaves like a dict but allows access with the attribute syntax."""
+
+    def __getattr__(self, name: str) -> Any:
+        try:
+            return self[name]
+        except KeyError:
+            raise AttributeError(name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        self[name] = value
+
+    def __delattr__(self, name: str) -> None:
+        del self[name]
 
 def get_weight_initializer_runtime_coef(shape, gain=1, use_wscale=True, lrmul=1):
     """ get initializer and lr coef for different weights shapes"""
@@ -33,6 +49,23 @@ def convert_images_to_uint8(images, drange=[-1, 1], nchw_to_nhwc=False, shrink=1
         images = tf.saturate_cast(images, tf.uint8)
     return images
 
-def nf(stage, fmap_base=16 << 10, fmap_decay=1.0, fmap_min=1, fmap_max=512): 
+def nf(stage, fmap_base=8 << 10, fmap_decay=1.0, fmap_min=1, fmap_max=512): # or fmap_base=8 << 10 for e and 16 << 10 for f
     return np.clip(int(fmap_base / (2.0 ** (stage * fmap_decay))), fmap_min, fmap_max)
-    
+
+def lerp(a, b, t):
+    out = a + (b - a) * t
+    return out
+
+def adjust_dynamic_range(images, range_in, range_out, out_dtype):
+    scale = (range_out[1] - range_out[0]) / (range_in[1] - range_in[0])
+    bias = range_out[0] - range_in[0] * scale
+    images = images * scale + bias
+    images = tf.clip_by_value(images, range_out[0], range_out[1])
+    images = tf.cast(images, dtype=out_dtype)
+    return images
+
+def postprocess_images(images):
+    images = adjust_dynamic_range(images, range_in=(-1.0, 1.0), range_out=(0.0, 255.0), out_dtype=tf.dtypes.float32)
+    images = tf.transpose(images, [0, 2, 3, 1])
+    images = tf.cast(images, dtype=tf.dtypes.uint8)
+    return images
