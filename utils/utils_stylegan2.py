@@ -69,3 +69,16 @@ def postprocess_images(images):
     images = tf.transpose(images, [0, 2, 3, 1])
     images = tf.cast(images, dtype=tf.dtypes.uint8)
     return images
+
+def merge_batch_images(images, res, rows, cols):
+    batch_size = images.shape[0]
+    assert rows * cols == batch_size
+    canvas = np.zeros(shape=[res * rows, res * cols, 3], dtype=np.uint8)
+    for row in range(rows):
+        y_start = row * res
+        for col in range(cols):
+            x_start = col * res
+            index = col + row * cols
+            canvas[y_start:y_start + res, x_start:x_start + res, :] = images[index, :, :, :]
+    return canvas
+

@@ -4,12 +4,12 @@ import numpy as np
 import tensorflow as tf
 
 from utils.dataset_loader import DatasetLoader
-from utils.utils_stylegan2 import postprocess_images, EasyDict
+from utils.utils_stylegan2 import postprocess_images, EasyDict, merge_batch_images, lerp
 from stylegan2_generator import StyleGan2Generator
 from stylegan2_discriminator import StyleGan2Discriminator
 
 class Trainer(object):
-    def __int__(
+    def __init__(
         self,
         model_base_dir      = './models',
         datasets_dir        = './datasets',
@@ -17,11 +17,11 @@ class Trainer(object):
         d_kwargs            = {},
         g_opt               = {},
         d_opt               = {},
-        batch_size          = 32,
+        batch_size          = 16,
         n_total_image       = 25000000,
-        n_samples           = 32,
+        n_samples           = 4,
         lazy_regulariztion  = True,
-        name                ="stylegan2"):
+        name                = "stylegan2"):
 
         self.model_base_dir = model_base_dir
         self.g_kwargs = g_kwargs
@@ -37,9 +37,9 @@ class Trainer(object):
         self.max_steps = int(np.ceil(self.n_total_image / self.batch_size))
         self.out_res = self.g_kwargs['resolution']
         self.log_template = 'step {}: elapsed: {:.2f}s, d_loss: {:.3f}, g_loss: {:.3f}, r1_reg: {:.3f}, pl_reg: {:.3f}'
-        self.print_step = 10
-        self.save_step = 100
-        self.image_summary_step = 100
+        self.print_step = 100
+        self.save_step = 1000
+        self.image_summary_step = 1000
         self.reached_max_steps = False
 
         # set up optimizer params
@@ -67,9 +67,9 @@ class Trainer(object):
         test_latent = np.ones((1, self.g_kwargs['z_dim']), dtype=np.float32)
         test_labels = np.ones((1, self.g_kwargs['labels_dim']), dtype=np.float32)
         test_images = np.ones((1, 3, self.out_res, self.out_res), dtype=np.float32)
-        _, __ = self.generator(test_latent, test_labels, training=False)
-        _ = self.discriminator(test_latent, test_labels, training=False)
-        _, __ = self.g_clone(test_latent, test_labels, training=False)
+        __ = self.generator(test_latent, test_labels, training=False)
+        _ = self.discriminator(test_images, test_labels, training=False)
+        __ = self.g_clone(test_latent, test_labels, training=False)
 
         # copying Gs
         self.g_clone.set_weights(self.generator.get_weights())
@@ -82,7 +82,7 @@ class Trainer(object):
                                         generator=self.generator,
                                         g_clone=self.g_clone)
         
-        self.manager = tf.train.CheckpointManager(self.ckpt, self.ckpt_dir, max_to_keep=10)
+        self.manager = tf.train.CheckpointManager(self.ckpt, self.ckpt_dir, max_to_keep=5)
 
         # restore ckpt
         self.ckpt.restore(self.manager.latest_checkpoint)
@@ -106,6 +106,22 @@ class Trainer(object):
             params['beta1'] = params['beta1'] ** mb_ratio
             params['beta2'] = params['beta2'] ** mb_ratio
         return params
+
+    @tf.function
+    def d_train_step(self, z, real_images, labels):
+        with tf.GradientTape() as d_tape:
+            # fw pass
+            fake_images = self.generator(z, labels, training=True)
+            real_scores = self.discriminator(real_images, labels, training=True)
+            fake_scores = self.discriminator(fake_images, labels, training=True)
+
+            # gan loss
+            d_loss = tf.math.softplus(fake_scores)
+            d_loss += tf.math.softplus(-real_scores)
+            d_loss = tf.reduce_mean(d_loss)
+        d_gradients = d_tape.gradient(d_loss, self.discriminator.trainable_variables)
+        self.d_optimizer.apply_gradients(zip(d_gradients, self.discriminator.trainable_variables))
+        return d_loss
 
     @tf.function
     def d_reg_train_step(self, z, real_images, labels):
@@ -134,28 +150,80 @@ class Trainer(object):
             d_loss = tf.reduce_mean(d_loss)
         
         d_gradients = d_tape.gradient(d_loss, self.discriminator.trainable_variables)
-        self.d_optimizer.apply_gradient(zip(d_gradients, self.discriminator.trainable_variables))
+        self.d_optimizer.apply_gradients(zip(d_gradients, self.discriminator.trainable_variables))
         return d_loss, tf.reduce_mean(r1_penalty)
+
+    @tf.function
+    def d_wp_gp(self, z, real_images, labels, wgan_lambda=10.0, wgan_epsilon=0.001, wgan_target=1.0):
+        with tf.GradientTape() as d_tape:
+            # fw pass
+             fake_images = self.generator(z, labels, training=True)
+            real_scores = self.discriminator(real_images, labels, training=True)
+            fake_scores = self.discriminator(fake_images, labels, training=True)
+
+            # gan loss
+            d_loss = tf.math.softplus(fake_scores)
+            d_loss += tf.math.softplus(-real_scores)
+
+            # epsilon penalty
+            # epsilon_penalty = tf.square(real_scores) * wgan_epsilon
+            # loss += epsilon_penalty * wgan_epsilon
+
+            # calc gradient penalty
+            alpha = tf.random.uniform([z.shape[0], 1, 1, 1], 0., 1.)
+            mixed_images = lerp(real_images, fake_images, alpha)
+            with tf.GradientTape() as gp_tape:
+                gp_tape.watch(mixed_images)
+                mixed_scores = self.discriminator(mixed_images, labels, training=True)
+            mixed_gradient = gp_tape.gradient(mixed_scores, [mixed_images])[0]
+            mixed_slopes = tf.sqrt(tf.reduce_sum(tf.square(mixed_gradient), axis=[1, 2, 3]))
+            gradient_penalty = (mixed_slopes - 1.)**2
+            gradient_penalty = gradient_penalty * self.d_opt['reg_interval']
+
+            # perfrom gradient penalty
+            d_loss += wgan_epsilon * gradient_penalty
+            d_loss = tf.reduce_mean(d_loss)
+        d_gradients = d_tape.gradient(d_loss, self.discriminator.trainable_variables)
+        self.d_optimizer.apply_gradients(zip(d_gradients, self.discriminator.trainable_variables))  
+        return d_loss, tf.reduce_mean(gradient_penalty)
+
+
+    @tf.function
+    def g_train_step(self, z, labels):
+        with tf.GradientTape() as g_tape:
+            # fw pass
+            fake_images = self.generator(z, labels, training=True)
+            fake_scores = self.discriminator(fake_images, labels, training=True)
+
+            # gan loss
+            g_loss = tf.math.softplus(-fake_scores)
+            g_loss = tf.reduce_mean(g_loss)
+        g_gradients = g_tape.gradient(g_loss, self.generator.trainable_variables)
+        self.g_optimizer.apply_gradients(zip(g_gradients, self.generator.trainable_variables))
+        return g_loss
 
     @tf.function
     def g_reg_train_step(self, z, labels):
         with tf.GradientTape() as g_tape:
             # forward pass
-            fake_images = self.generator([z, labels], training=True)
-            fake_scores = self.discriminator([fake_images, labels], training=True)
+            fake_images, dlatents = self.generator(z, labels, training=True, return_dlatents=True)
+            fake_scores = self.discriminator(fake_images, labels, training=True)
 
             # gan loss
             g_loss = tf.math.softplus(-fake_scores)
 
             # path length regularization
-            # Compute |J*y|.
+            fake_dlatents_out = self.generator.mapping_network(z, labels)
             with tf.GradientTape() as pl_tape:
-                fake_images, dlatents = self.generator(z, labels, training=True, return_dlatents=True)
+                # fake_images, dlatents = self.generator(z, labels, training=True, return_dlatents=True)
+                pl_tape.watch(fake_dlatents_out)
+                fake_images_out = self.generator.synthesis_network(fake_dlatents_out)
+                
+                # Compute |J*y|.
+                pl_noise = tf.random.normal(tf.shape(fake_images_out), mean=0.0, stddev=1.0, dtype=tf.float32) * self.pl_denorm
+                pl_noise_added = tf.reduce_sum(fake_images_out * pl_noise)
 
-                pl_noise = tf.random.normal(tf.shape(fake_images), mean=0.0, stddev=1.0, dtype=tf.float32) * self.pl_denorm
-                pl_noise_added = tf.reduce_sum(fake_images * pl_noise)
-
-            pl_grads = pl_tape.gradient(pl_noise_added, dlatents)
+            pl_grads = pl_tape.gradient(pl_noise_added, fake_dlatents_out)
             pl_lengths = tf.math.sqrt(tf.reduce_mean(tf.reduce_sum(tf.math.square(pl_grads), axis=2), axis=1))
 
             # Track exponential moving average of |J*y|.
@@ -196,9 +264,11 @@ class Trainer(object):
         losses = {'g_loss': 0.0, 'd_loss': 0.0, 'r1_reg': 0.0, 'pl_reg': 0.0}
         t_start = time.time()
 
-        while True:
+        # while True:
+            # real_images, labels = self.dataset_loader.get_batch()
+        for real_images, labels in self.dataset_loader.train_ds:
+            real_images = tf.transpose(real_images, [0, 3, 1, 2])
             z = tf.random.normal(shape=[tf.shape(real_images)[0], self.g_kwargs['z_dim']], dtype=tf.dtypes.float32)
-            real_images, labels = self.dataset_loader.get_batch()
 
             # get current step
             step = self.g_optimizer.iterations.numpy()
@@ -248,7 +318,7 @@ class Trainer(object):
                 # update metrics
                 metric_g_loss(g_loss)
 
-            # save to tfboard
+            # save to tensorboard
             with train_summary_writer.as_default():
                 tf.summary.scalar('g_loss', metric_g_loss.result(), step=step)
                 tf.summary.scalar('d_loss', metric_d_loss.result(), step=step)
@@ -322,8 +392,8 @@ def main():
     #--------------------
     train_params = EasyDict()
     train_params['model_base_dir'] = './models'
-    train_params['datasets_dir'] = './datasets'
-    train_params['batch_size'] = 32
+    train_params['datasets_dir'] = './datasets/logo-color-label'
+    train_params['batch_size'] = 4
     train_params['n_total_image'] = 25000000
     train_params['n_samples'] = 4
     train_params['lazy_regulariztion'] = True
@@ -333,7 +403,7 @@ def main():
     g_kwargs = EasyDict()
     g_kwargs['z_dim'] = 512
     g_kwargs['w_dim'] = 512
-    g_kwargs['labels_dim'] = 18
+    g_kwargs['labels_dim'] = 2
     g_kwargs['n_mapping'] = 8
     g_kwargs['resolution'] = 256
     g_kwargs['w_ema_decay'] = 0.995
@@ -341,8 +411,8 @@ def main():
 
     # discriminator args
     d_kwargs = EasyDict()
-    d_kwargs['labels_dim'] = 18
-    d_kwargs['resoluton'] = 256
+    d_kwargs['labels_dim'] = 2
+    d_kwargs['resolution'] = 256
 
     train_params['g_kwargs'] = g_kwargs
     train_params['d_kwargs'] = d_kwargs
@@ -366,11 +436,11 @@ def main():
     train_params['g_opt'] = g_opt
     train_params['d_opt'] = d_opt
 
-    print(train_params)
+    # print(train_params)
     # train ------------------------------------
-    # trainer = Trainer(**train_params)
-    # trainer.train()
-    # return
+    trainer = Trainer(**train_params)
+    trainer.train()
+    return
 
 if __name__ == '__main__':
     main()

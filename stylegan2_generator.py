@@ -346,18 +346,18 @@ class StyleGan2Generator(tf.keras.layers.Layer):
         else:
             raise Exception('Cannot load {} weights'.format(weights_name))
 
-def main():
-    g_kwargs = EasyDict()
-    g_kwargs['impl'] = 'cuda'
-    g_kwargs['gpu'] = True
-    g_kwargs['labels_dim'] = 19
-    g_kwargs['weights'] = 'logo'
+# def main():
+#     g_kwargs = EasyDict()
+#     g_kwargs['impl'] = 'cuda'
+#     g_kwargs['gpu'] = True
+#     g_kwargs['labels_dim'] = 19
+#     g_kwargs['weights'] = 'logo'
 
-    generator = StyleGan2Generator(**g_kwargs)
+#     generator = StyleGan2Generator(**g_kwargs)
 
-    seed = 96
-    rnd = np.random.RandomState(seed)
-    z = rnd.randn(1, 512).astype('float32')
+#     seed = 96
+#     rnd = np.random.RandomState(seed)
+#     z = rnd.randn(1, 512).astype('float32')
 
-if __name__ == '__main__':
-    main()
+# if __name__ == '__main__':
+#     main()
