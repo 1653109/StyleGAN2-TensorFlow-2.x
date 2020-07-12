@@ -9,7 +9,7 @@ import numpy as np
 
 class DatasetLoader:
     """ Helper for load the dataset using tf.Dataset class """
-    def __init__(self, path_dir, resolution, batch_size, cache_file=True):
+    def __init__(self, path_dir, resolution, batch_size, shuffle_buffer_size=100, cache_file=True):
         """
         path_dir : Directory of the image dataset
         resolution : Resolution of the training images
@@ -19,6 +19,7 @@ class DatasetLoader:
         self.resolution = resolution
         self.batch_size = batch_size
         self.cache_file = cache_file
+        self.shuffle_buffer_size = shuffle_buffer_size
         self.AUTOTUNE = tf.data.experimental.AUTOTUNE
         
         # list_ds = tf.data.Dataset.list_files(str(path_dir+'/*'))
@@ -55,7 +56,7 @@ class DatasetLoader:
         images, label = next(iter(self.train_ds))
         return tf.transpose(images, [0, 3, 1, 2]), label 
 
-    def prepare_for_training(self, ds, cache=True, shuffle_buffer_size=100):
+    def prepare_for_training(self, ds, cache=True):
       # use `.cache(filename)` to cache preprocessing work for datasets that don't
       # fit in memory.
         if cache:
@@ -63,7 +64,7 @@ class DatasetLoader:
                 ds = ds.cache(cache)
             else:
                 ds = ds.cache()
-        ds = ds.shuffle(buffer_size=shuffle_buffer_size)
+        ds = ds.shuffle(buffer_size=self.shuffle_buffer_size)
         # Repeat forever
         ds = ds.repeat()
         ds = ds.batch(self.batch_size)

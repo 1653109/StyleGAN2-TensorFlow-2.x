@@ -1,5 +1,6 @@
 import os
 import time
+import argparse
 import numpy as np
 import tensorflow as tf
 
@@ -13,6 +14,8 @@ class Trainer(object):
         self,
         model_base_dir      = './models',
         datasets_dir        = './datasets',
+        shuffle_buffer_size = 1000,
+        max_to_keep         = 2,
         g_kwargs            = {},
         d_kwargs            = {},
         g_opt               = {},
@@ -36,7 +39,8 @@ class Trainer(object):
         self.r1_gamma = 10.0
         self.max_steps = int(np.ceil(self.n_total_image / self.batch_size))
         self.out_res = self.g_kwargs['resolution']
-        self.log_template = 'step {}: elapsed: {:.2f}s, d_loss: {:.3f}, g_loss: {:.3f}, r1_reg: {:.3f}, pl_reg: {:.3f}'
+        # self.log_template = 'step {}: elapsed: {:.2f}s, d_loss: {:.3f}, g_loss: {:.3f}, r1_reg: {:.3f}, pl_reg: {:.3f}'
+        self.log_template = 'step {}: elapsed: {:.2f}s, d_loss: {:.3f}, g_loss: {:.3f}, gradient_penalty: {:.3f}, pl_reg: {:.3f}'
         self.print_step = 100
         self.save_step = 1000
         self.image_summary_step = 1000
@@ -51,7 +55,7 @@ class Trainer(object):
         self.pl_denorm = 1.0 / np.sqrt(self.out_res * self.out_res)
 
         # dataset
-        self.dataset_loader = DatasetLoader(path_dir=datasets_dir, resolution=self.out_res, batch_size=self.batch_size)
+        self.dataset_loader = DatasetLoader(path_dir=datasets_dir, resolution=self.out_res, batch_size=self.batch_size, shuffle_buffer_size=shuffle_buffer_size)
 
         # init models
         print('Initializing models ...')
@@ -82,7 +86,7 @@ class Trainer(object):
                                         generator=self.generator,
                                         g_clone=self.g_clone)
         
-        self.manager = tf.train.CheckpointManager(self.ckpt, self.ckpt_dir, max_to_keep=5)
+        self.manager = tf.train.CheckpointManager(self.ckpt, self.ckpt_dir, max_to_keep=max_to_keep)
 
         # restore ckpt
         self.ckpt.restore(self.manager.latest_checkpoint)
@@ -157,7 +161,7 @@ class Trainer(object):
     def d_wp_gp(self, z, real_images, labels, wgan_lambda=10.0, wgan_epsilon=0.001, wgan_target=1.0):
         with tf.GradientTape() as d_tape:
             # fw pass
-             fake_images = self.generator(z, labels, training=True)
+            fake_images = self.generator(z, labels, training=True)
             real_scores = self.discriminator(real_images, labels, training=True)
             fake_scores = self.discriminator(fake_images, labels, training=True)
 
@@ -206,24 +210,24 @@ class Trainer(object):
     def g_reg_train_step(self, z, labels):
         with tf.GradientTape() as g_tape:
             # forward pass
-            fake_images, dlatents = self.generator(z, labels, training=True, return_dlatents=True)
+            fake_images, fake_dlatents = self.generator(z, labels, training=True, return_dlatents=True)
             fake_scores = self.discriminator(fake_images, labels, training=True)
 
             # gan loss
             g_loss = tf.math.softplus(-fake_scores)
 
             # path length regularization
-            fake_dlatents_out = self.generator.mapping_network(z, labels)
+            # fake_dlatents = self.generator.mapping_network(z, labels)
             with tf.GradientTape() as pl_tape:
                 # fake_images, dlatents = self.generator(z, labels, training=True, return_dlatents=True)
-                pl_tape.watch(fake_dlatents_out)
-                fake_images_out = self.generator.synthesis_network(fake_dlatents_out)
+                pl_tape.watch(fake_dlatents)
+                fake_images_out = self.generator.synthesis_network(fake_dlatents)
                 
                 # Compute |J*y|.
                 pl_noise = tf.random.normal(tf.shape(fake_images_out), mean=0.0, stddev=1.0, dtype=tf.float32) * self.pl_denorm
                 pl_noise_added = tf.reduce_sum(fake_images_out * pl_noise)
 
-            pl_grads = pl_tape.gradient(pl_noise_added, fake_dlatents_out)
+            pl_grads = pl_tape.gradient(pl_noise_added, fake_dlatents)
             pl_lengths = tf.math.sqrt(tf.reduce_mean(tf.reduce_sum(tf.math.square(pl_grads), axis=2), axis=1))
 
             # Track exponential moving average of |J*y|.
@@ -256,12 +260,14 @@ class Trainer(object):
         # loss metrics
         metric_g_loss = tf.keras.metrics.Mean('g_loss', dtype=tf.float32)
         metric_d_loss = tf.keras.metrics.Mean('d_loss', dtype=tf.float32)
-        metric_r1_reg = tf.keras.metrics.Mean('r1_reg', dtype=tf.float32)
+        # metric_r1_reg = tf.keras.metrics.Mean('r1_reg', dtype=tf.float32)
+        metric_gradient_penalty = tf.keras.metrics.Mean('gradient_penalty', dtype=tf.float32)
         metric_pl_reg = tf.keras.metrics.Mean('pl_reg', dtype=tf.float32)
 
         # start training
         print('max steps: {}'.format(self.max_steps))
-        losses = {'g_loss': 0.0, 'd_loss': 0.0, 'r1_reg': 0.0, 'pl_reg': 0.0}
+        # losses = {'g_loss': 0.0, 'd_loss': 0.0, 'r1_reg': 0.0, 'pl_reg': 0.0}
+        losses = {'g_loss': 0.0, 'd_loss': 0.0, 'gradient_penalty': 0.0, 'pl_reg': 0.0}
         t_start = time.time()
 
         # while True:
@@ -275,21 +281,25 @@ class Trainer(object):
 
             # d train step
             if step % self.d_opt['reg_interval'] == 0:
-                d_loss, r1_reg = self.d_reg_train_step(z, real_images, labels)
+                # d_loss, r1_reg = self.d_reg_train_step(z, real_images, labels)
+                d_loss, gp = self.d_wp_gp(z, real_images, labels)
 
                 # update value for printing
                 losses['d_loss'] = d_loss.numpy()
-                losses['r1_reg'] = r1_reg.numpy()
+                # losses['r1_reg'] = r1_reg.numpy()
+                losses['gradient_penalty'] = gp.numpy()
 
                 # update metrics
                 metric_d_loss(d_loss)
-                metric_r1_reg(r1_reg)
+                # metric_r1_reg(r1_reg)
+                metric_gradient_penalty(gp)
             else:
                 d_loss = self.d_train_step(z, real_images, labels)
 
                 # update values for printing
                 losses['d_loss'] = d_loss.numpy()
-                losses['r1_reg'] = 0.0
+                # losses['r1_reg'] = 0.0
+                losses['gradient_penalty'] = 0.0
 
                 # update metrics
                 metric_d_loss(d_loss)
@@ -322,7 +332,8 @@ class Trainer(object):
             with train_summary_writer.as_default():
                 tf.summary.scalar('g_loss', metric_g_loss.result(), step=step)
                 tf.summary.scalar('d_loss', metric_d_loss.result(), step=step)
-                tf.summary.scalar('r1_reg', metric_r1_reg.result(), step=step)
+                # tf.summary.scalar('r1_reg', metric_r1_reg.result(), step=step)
+                tf.summary.scalar('gradient_penalty', metric_gradient_penalty.result(), step=step)
                 tf.summary.scalar('pl_reg', metric_pl_reg.result(), step=step)
                 tf.summary.histogram('w_avg', self.generator.w_avg, step=step)
 
@@ -333,15 +344,17 @@ class Trainer(object):
             # save every image_summary_step
             if step % self.image_summary_step == 0:
                 # add summary img
-                summary_image = self.sample_images_tensorboard(real_images)
+                summary_image = self.sample_images_tensorboard(real_images, labels)
                 with train_summary_writer.as_default():
                     tf.summary.image('images', summary_image, step=step)
 
             # print every print_step
             if step % self.print_step == 0:
                 elapsed = time.time() - t_start
+                # print(self.log_template.format(step, elapsed,
+                #                                losses['d_loss'], losses['g_loss'], losses['r1_reg'], losses['pl_reg']))
                 print(self.log_template.format(step, elapsed,
-                                               losses['d_loss'], losses['g_loss'], losses['r1_reg'], losses['pl_reg']))
+                                               losses['d_loss'], losses['g_loss'], losses['gradient_penalty'], losses['pl_reg']))                               
 
                 # reset timer
                 t_start = time.time()
@@ -353,24 +366,26 @@ class Trainer(object):
         # get current step
         step = self.g_optimizer.iterations.numpy()
         elapsed = time.time() - t_start
+        # print(self.log_template.format(step, elapsed,
+        #                                        losses['d_loss'], losses['g_loss'], losses['r1_reg'], losses['pl_reg']))
         print(self.log_template.format(step, elapsed,
-                                       losses['d_loss'], losses['g_loss'], losses['r1_reg'], losses['pl_reg']))
+                                               losses['d_loss'], losses['g_loss'], losses['gradient_penalty'], losses['pl_reg']))
 
         # save last checkpoint
         self.manager.save(checkpoint_number=step)
         return
 
-    def sample_images_tensorboard(self, real_images):
+    def sample_images_tensorboard(self, real_images, labels_in):
         reals = real_images[:self.n_samples, :, :, :]
+        labels = labels_in[:self.n_samples, :]
         latents = tf.random.normal(shape=(self.n_samples, self.g_kwargs['z_dim']), dtype=tf.dtypes.float32)
-        # fix chỗ này ......
-        dummy_labels = tf.ones((self.n_samples, self.g_kwargs['labels_dim']), dtype=tf.dtypes.float32)
+        # dummy_labels = tf.ones((self.n_samples, self.g_kwargs['labels_dim']), dtype=tf.dtypes.float32)
 
         # run networks
-        fake_images_00 = self.g_clone(latents, dummy_labels, truncation_psi=0.0, training=False)
-        fake_images_05 = self.g_clone(latents, dummy_labels, truncation_psi=0.5, training=False)
-        fake_images_07 = self.g_clone(latents, dummy_labels, truncation_psi=0.7, training=False)
-        fake_images_10 = self.g_clone(latents, dummy_labels, truncation_psi=1.0, training=False)
+        fake_images_00 = self.g_clone(latents, labels, truncation_psi=0.0, training=False)
+        fake_images_05 = self.g_clone(latents, labels, truncation_psi=0.5, training=False)
+        fake_images_07 = self.g_clone(latents, labels, truncation_psi=0.7, training=False)
+        fake_images_10 = self.g_clone(latents, labels, truncation_psi=1.0, training=False)
 
         # merge on batch dimension: [5 * n_samples, 3, out_res, out_res]
         out = tf.concat([reals, fake_images_00, fake_images_05, fake_images_07, fake_images_10], axis=0)
@@ -388,22 +403,35 @@ class Trainer(object):
         return out
 
 def main():
-    # parser nếu rảnh ...
+    # parser
+    parser = argparse.ArgumentParser(description='stylegan2')
+    parser.add_argument('--model_base_dir', default='./models', type=str)
+    parser.add_argument('--datasets_dir', default='./datasets/logo-color-label', type=str)
+    parser.add_argument('--res', default=256, type=int)
+    parser.add_argument('--shuffle_buffer_size', default=1000, type=int)
+    parser.add_argument('--batch_size', default=8, type=int)
+    parser.add_argument('--labels_dim', default=0, type=int)
+    parser.add_argument('--n_total_image', default=25000000, type=int)
+    agrs = vars(parser.parse_args())
     #--------------------
+    labels_dim = agrs['labels_dim']
+
     train_params = EasyDict()
-    train_params['model_base_dir'] = './models'
-    train_params['datasets_dir'] = './datasets/logo-color-label'
-    train_params['batch_size'] = 4
-    train_params['n_total_image'] = 25000000
+    train_params['model_base_dir'] = agrs['model_base_dir']
+    train_params['datasets_dir'] = agrs['datasets_dir']
+    train_params['shuffle_buffer_size'] = agrs['shuffle_buffer_size']
+    train_params['batch_size'] = agrs['batch_size']
+    train_params['n_total_image'] = agrs['n_total_image']
     train_params['n_samples'] = 4
     train_params['lazy_regulariztion'] = True
     train_params['name'] = 'stylegan2-logo-color-label'
+    train_params['max_to_keep'] = 5
 
     # generator args
     g_kwargs = EasyDict()
     g_kwargs['z_dim'] = 512
     g_kwargs['w_dim'] = 512
-    g_kwargs['labels_dim'] = 2
+    g_kwargs['labels_dim'] = labels_dim
     g_kwargs['n_mapping'] = 8
     g_kwargs['resolution'] = 256
     g_kwargs['w_ema_decay'] = 0.995
@@ -411,7 +439,7 @@ def main():
 
     # discriminator args
     d_kwargs = EasyDict()
-    d_kwargs['labels_dim'] = 2
+    d_kwargs['labels_dim'] = labels_dim
     d_kwargs['resolution'] = 256
 
     train_params['g_kwargs'] = g_kwargs
@@ -426,7 +454,7 @@ def main():
         'reg_interval': 4
     }
     d_opt = {
-        'learning_rate': 0.002,
+        'learning_rate': 0.001,
         'beta1': 0.0,
         'beta2': 0.99,
         'epsilon': 1e-08,
