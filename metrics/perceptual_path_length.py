@@ -41,7 +41,7 @@ class PPL:
         all_distances = []
         for _ in range(0, self.num_samples, batch_size):
             lat_t01 = tf.random.normal([batch_size] + [Gs.z_dim])
-            lerp_t = tf.random.uniform([batch_size], 0.0, 1.0 if self.sampling == 'full' else 0.0)
+            lerp_t = tf.random.uniform([batch_size // 2], 0.0, 1.0 if self.sampling == 'full' else 0.0)
 
             # create labels
             label_idx = random.randint(0, labels_dim - 1)
@@ -89,7 +89,9 @@ class PPL:
                 'vgg16_perceptual_distance/images_a': img1,
                 'vgg16_perceptual_distance/images_b': img2
             }
-            all_distances +=  vgg16(**kwargs)
+            result = vgg16(**kwargs)
+            result = [result[0] * (1 / self.epsilon**2)]
+            all_distances += result
         
         all_distances = np.concatenate(all_distances, axis=0)
 
