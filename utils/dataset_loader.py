@@ -16,6 +16,7 @@ class DatasetLoader:
         batch_size : Batch size
         cache_file : filepath to store cache files .tfcache extension
         """
+        self.path_dir = path_dir
         self.resolution = resolution
         self.batch_size = batch_size
         self.cache_file = cache_file

@@ -39,8 +39,8 @@ class Trainer(object):
         self.r1_gamma = 10.0
         self.max_steps = int(np.ceil(self.n_total_image / self.batch_size))
         self.out_res = self.g_kwargs['resolution']
-        # self.log_template = 'step {}: elapsed: {:.2f}s, d_loss: {:.3f}, g_loss: {:.3f}, r1_reg: {:.3f}, pl_reg: {:.3f}'
-        self.log_template = 'step {}: elapsed: {:.2f}s, d_loss: {:.3f}, g_loss: {:.3f}, gradient_penalty: {:.3f}, pl_reg: {:.3f}'
+        self.log_template = 'step {}: elapsed: {:.2f}s, d_loss: {:.3f}, g_loss: {:.3f}, r1_reg: {:.3f}, pl_reg: {:.3f}'
+        # self.log_template = 'step {}: elapsed: {:.2f}s, d_loss: {:.3f}, g_loss: {:.3f}, gradient_penalty: {:.3f}, pl_reg: {:.3f}'
         self.print_step = 100
         self.save_step = 1000
         self.image_summary_step = 1000
@@ -158,7 +158,7 @@ class Trainer(object):
         return d_loss, tf.reduce_mean(r1_penalty)
 
     @tf.function
-    def d_wp_gp(self, z, real_images, labels, wgan_lambda=10.0, wgan_epsilon=0.001, wgan_target=1.0):
+    def d_wgan_gp(self, z, real_images, labels, wgan_lambda=10.0, wgan_epsilon=0.001, wgan_target=1.0):
         with tf.GradientTape() as d_tape:
             # fw pass
             fake_images = self.generator(z, labels, training=True)
@@ -260,14 +260,14 @@ class Trainer(object):
         # loss metrics
         metric_g_loss = tf.keras.metrics.Mean('g_loss', dtype=tf.float32)
         metric_d_loss = tf.keras.metrics.Mean('d_loss', dtype=tf.float32)
-        # metric_r1_reg = tf.keras.metrics.Mean('r1_reg', dtype=tf.float32)
-        metric_gradient_penalty = tf.keras.metrics.Mean('gradient_penalty', dtype=tf.float32)
+        metric_r1_reg = tf.keras.metrics.Mean('r1_reg', dtype=tf.float32)
+        # metric_gradient_penalty = tf.keras.metrics.Mean('gradient_penalty', dtype=tf.float32)
         metric_pl_reg = tf.keras.metrics.Mean('pl_reg', dtype=tf.float32)
 
         # start training
         print('max steps: {}'.format(self.max_steps))
-        # losses = {'g_loss': 0.0, 'd_loss': 0.0, 'r1_reg': 0.0, 'pl_reg': 0.0}
-        losses = {'g_loss': 0.0, 'd_loss': 0.0, 'gradient_penalty': 0.0, 'pl_reg': 0.0}
+        losses = {'g_loss': 0.0, 'd_loss': 0.0, 'r1_reg': 0.0, 'pl_reg': 0.0}
+        # losses = {'g_loss': 0.0, 'd_loss': 0.0, 'gradient_penalty': 0.0, 'pl_reg': 0.0}
         t_start = time.time()
 
         # while True:
@@ -281,25 +281,25 @@ class Trainer(object):
 
             # d train step
             if step % self.d_opt['reg_interval'] == 0:
-                # d_loss, r1_reg = self.d_reg_train_step(z, real_images, labels)
-                d_loss, gp = self.d_wp_gp(z, real_images, labels)
+                d_loss, r1_reg = self.d_reg_train_step(z, real_images, labels)
+                # d_loss, gp = self.d_wgan_gp(z, real_images, labels)
 
                 # update value for printing
-                losses['d_loss'] = d_loss.numpy()
-                # losses['r1_reg'] = r1_reg.numpy()
-                losses['gradient_penalty'] = gp.numpy()
+                # losses['d_loss'] = d_loss.numpy()
+                losses['r1_reg'] = r1_reg.numpy()
+                # losses['gradient_penalty'] = gp.numpy()
 
                 # update metrics
                 metric_d_loss(d_loss)
-                # metric_r1_reg(r1_reg)
-                metric_gradient_penalty(gp)
+                metric_r1_reg(r1_reg)
+                # metric_gradient_penalty(gp)
             else:
                 d_loss = self.d_train_step(z, real_images, labels)
 
                 # update values for printing
                 losses['d_loss'] = d_loss.numpy()
-                # losses['r1_reg'] = 0.0
-                losses['gradient_penalty'] = 0.0
+                losses['r1_reg'] = 0.0
+                # losses['gradient_penalty'] = 0.0
 
                 # update metrics
                 metric_d_loss(d_loss)
@@ -332,8 +332,8 @@ class Trainer(object):
             with train_summary_writer.as_default():
                 tf.summary.scalar('g_loss', metric_g_loss.result(), step=step)
                 tf.summary.scalar('d_loss', metric_d_loss.result(), step=step)
-                # tf.summary.scalar('r1_reg', metric_r1_reg.result(), step=step)
-                tf.summary.scalar('gradient_penalty', metric_gradient_penalty.result(), step=step)
+                tf.summary.scalar('r1_reg', metric_r1_reg.result(), step=step)
+                # tf.summary.scalar('gradient_penalty', metric_gradient_penalty.result(), step=step)
                 tf.summary.scalar('pl_reg', metric_pl_reg.result(), step=step)
                 tf.summary.histogram('w_avg', self.generator.w_avg, step=step)
 
@@ -351,10 +351,10 @@ class Trainer(object):
             # print every print_step
             if step % self.print_step == 0:
                 elapsed = time.time() - t_start
-                # print(self.log_template.format(step, elapsed,
-                #                                losses['d_loss'], losses['g_loss'], losses['r1_reg'], losses['pl_reg']))
                 print(self.log_template.format(step, elapsed,
-                                               losses['d_loss'], losses['g_loss'], losses['gradient_penalty'], losses['pl_reg']))                               
+                                               losses['d_loss'], losses['g_loss'], losses['r1_reg'], losses['pl_reg']))
+                # print(self.log_template.format(step, elapsed,
+                #                                losses['d_loss'], losses['g_loss'], losses['gradient_penalty'], losses['pl_reg']))                               
 
                 # reset timer
                 t_start = time.time()
@@ -366,10 +366,10 @@ class Trainer(object):
         # get current step
         step = self.g_optimizer.iterations.numpy()
         elapsed = time.time() - t_start
-        # print(self.log_template.format(step, elapsed,
-        #                                        losses['d_loss'], losses['g_loss'], losses['r1_reg'], losses['pl_reg']))
         print(self.log_template.format(step, elapsed,
-                                               losses['d_loss'], losses['g_loss'], losses['gradient_penalty'], losses['pl_reg']))
+                                               losses['d_loss'], losses['g_loss'], losses['r1_reg'], losses['pl_reg']))
+        # print(self.log_template.format(step, elapsed,
+        #                                        losses['d_loss'], losses['g_loss'], losses['gradient_penalty'], losses['pl_reg']))
 
         # save last checkpoint
         self.manager.save(checkpoint_number=step)
@@ -412,6 +412,7 @@ def main():
     parser.add_argument('--batch_size', default=8, type=int)
     parser.add_argument('--labels_dim', default=0, type=int)
     parser.add_argument('--n_total_image', default=25000000, type=int)
+    parser.add_argument('--name', default='stylegan2', type=str)
     agrs = vars(parser.parse_args())
     #--------------------
     labels_dim = agrs['labels_dim']
@@ -424,7 +425,7 @@ def main():
     train_params['n_total_image'] = agrs['n_total_image']
     train_params['n_samples'] = 4
     train_params['lazy_regulariztion'] = True
-    train_params['name'] = 'stylegan2-logo-color-label'
+    train_params['name'] = agrs['name']
     train_params['max_to_keep'] = 5
 
     # generator args

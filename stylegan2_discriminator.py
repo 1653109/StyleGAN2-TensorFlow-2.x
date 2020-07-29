@@ -48,7 +48,7 @@ class StyleGan2Discriminator(tf.keras.layers.Layer):
              
     def build(self, input_shape):
         
-        self.mini_btch_std_layer = MinibatchStdLayer()
+        self.mini_batch_std_layer = MinibatchStdLayer()
         self.from_rgb = FromRgbLayer(fmaps=nf(self.resolution_log2-1), 
                                      name='{}x{}'.format(self.resolution, self.resolution),
                                      impl=self.impl, gpu=self.gpu)
@@ -90,7 +90,7 @@ class StyleGan2Discriminator(tf.keras.layers.Layer):
             x = getattr(self, 'block_{}_{}'.format(2**res, 2**res))(x)
 
         #minibatch std dev
-        x = self.mini_btch_std_layer(x)
+        x = self.mini_batch_std_layer(x)
         
         #last convolution layer
         x = self.conv_4_4(x)

@@ -133,7 +133,7 @@ class SynthesisNetwork(tf.keras.layers.Layer):
             x = getattr(self, 'layer_{}_{}'.format(2**res, 2**res))(x, dlatents_in[:, res*2-4])
             y = upsample_2d(y, k=self.resample_kernel, impl=self.impl, gpu=self.gpu)
             y = getattr(self, 'torgb_{}_{}'.format(2**res, 2**res))(x, dlatents_in[:, res*2-3], y)
-                    
+
         images_out = y
         return tf.identity(images_out, name='images_out')
     
