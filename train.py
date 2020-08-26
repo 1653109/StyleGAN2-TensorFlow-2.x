@@ -23,7 +23,7 @@ class Trainer(object):
         batch_size          = 16,
         n_total_image       = 25000000,
         n_samples           = 4,
-        lazy_regulariztion  = True,
+        lazy_regularization  = True,
         name                = "stylegan2"):
 
         self.model_base_dir = model_base_dir
@@ -34,7 +34,7 @@ class Trainer(object):
         self.batch_size = batch_size
         self.n_total_image = n_total_image
         self.n_samples = min(self.batch_size, n_samples)
-        self.lazy_regulariztion = lazy_regulariztion
+        self.lazy_regularization = lazy_regularization
 
         self.r1_gamma = 10.0
         self.max_steps = int(np.ceil(self.n_total_image / self.batch_size))
@@ -104,7 +104,7 @@ class Trainer(object):
             print('Cannot restore from saved checkpoint')
 
     def set_optimizer_params(self, params):
-        if self.lazy_regulariztion:
+        if self.lazy_regularization:
             mb_ratio = params['reg_interval'] / (params['reg_interval'] + 1)
             params['learning_rate'] = params['learning_rate'] * mb_ratio
             params['beta1'] = params['beta1'] ** mb_ratio
@@ -424,7 +424,7 @@ def main():
     train_params['batch_size'] = agrs['batch_size']
     train_params['n_total_image'] = agrs['n_total_image']
     train_params['n_samples'] = 4
-    train_params['lazy_regulariztion'] = True
+    train_params['lazy_regularization'] = True
     train_params['name'] = agrs['name']
     train_params['max_to_keep'] = 5
 

@@ -61,12 +61,17 @@ def _run_cmd(cmd):
         raise RuntimeError('NVCC returned an error. See below for full command line and output log:\n\n%s\n\n%s' % (cmd, output))
 
 def _prepare_nvcc_cli(opts):
-    cmd = 'nvcc --std=c++11 -DNDEBUG ' + opts.strip()
+    base_path = 'C:/ProgramData/Anaconda3/Lib/site-packages'
+    # cmd = 'nvcc --std=c++11 -DNDEBUG ' + opts.strip()
+    cmd = 'nvcc ' + opts.strip()
     cmd += ' --disable-warnings'
     cmd += ' --include-path "%s"' % tf.sysconfig.get_include()
-    cmd += ' --include-path "%s"' % os.path.join(tf.sysconfig.get_include(), 'external', 'protobuf_archive', 'src')
+    # cmd += ' --include-path "%s"' % os.path.join(tf.sysconfig.get_include(), 'external', 'protobuf_archive', 'src')
     cmd += ' --include-path "%s"' % os.path.join(tf.sysconfig.get_include(), 'external', 'com_google_absl')
     cmd += ' --include-path "%s"' % os.path.join(tf.sysconfig.get_include(), 'external', 'eigen_archive')
+
+    cmd += ' --include-path "%s"' % base_path
+    cmd += ' --include-path "%s"' % os.path.join(base_path, 'tensorflow')
 
     compiler_bindir = _find_compiler_bindir()
     if compiler_bindir is None:
