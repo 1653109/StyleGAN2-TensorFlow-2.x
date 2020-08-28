@@ -130,12 +130,8 @@ def image():
     }
 
     return jsonify(res)
-    # return Response(fp.getvalue(), mimetype = 'image/png')
 
 if __name__ == '__main__':
-    # model = StyleGAN2Model()
-    # z = tf.random.normal(shape=[1, 512], dtype=tf.dtypes.float32)
-    # img = model.generate_from_z(z=z, label=1)
-    # print(img.shape)
 
-    app.run(debug=True)
+    # app.run(debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=True)
