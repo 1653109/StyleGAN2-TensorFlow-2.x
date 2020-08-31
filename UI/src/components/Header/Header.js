@@ -21,9 +21,9 @@ const Header = () => {
         <Link color="inherit" href="/" onClick={handleClick}>
           Z Latents
       </Link>
-        <Link color="inherit" href="/w" onClick={handleClick}>
+        {/* <Link color="inherit" href="/w" onClick={handleClick}>
           W Latents
-      </Link>
+      </Link> */}
       </Breadcrumbs>
     </div>
   )

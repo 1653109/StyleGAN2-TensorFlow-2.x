@@ -1,5 +1,6 @@
 # ignore jupyter notebook for now
 *.ipynb
+desktop.ini
 
 # ignore weights
 *.npy

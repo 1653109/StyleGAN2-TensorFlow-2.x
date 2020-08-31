@@ -71,7 +71,6 @@ const changeLatentsAction = (idx, value) => ({
 
 export const changeLatents = (idx, value) => (dispatch, getState) => {
   dispatch(changeLatentsAction(idx, value))
-  // dispatch(fetchImage())
 }
 
 const changePsiAction = (psi) => ({
@@ -81,7 +80,6 @@ const changePsiAction = (psi) => ({
 
 export const changePsi = psi => (dispatch, getState) => {
   dispatch(changePsiAction(psi))
-  // dispatch(fetchImage())
 }
 
 const randomLatentsAction = (latents) => ({

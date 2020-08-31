@@ -3,7 +3,6 @@ import {
   Paper,
   FormGroup,
   FormControlLabel,
-  // Checkbox,
   Button,
   Slider,
 } from '@material-ui/core'
@@ -12,9 +11,7 @@ import PropTypes from 'prop-types'
 
 const useStyles = makeStyles(theme => ({
   root: {
-    padding: '10px',
-    // display: 'flex',
-    // justifyContent: 'space-between'
+    padding: '10px'
   },
   slider: {
     width: 400
@@ -54,7 +51,12 @@ const Modify = ({ psi, changePsi, randomLatents, fetchImage }) => {
   const classes = useStyles()
 
   const handlePsiChange = (e, v) => {
+    e.preventDefault()
     changePsi(v)
+  }
+
+  const handlePsiChangeCommitted = (e, v) => {
+    e.preventDefault()
     fetchImage()
   }
 
@@ -67,17 +69,6 @@ const Modify = ({ psi, changePsi, randomLatents, fetchImage }) => {
     <div>
       <Paper elevation={2}>
         <FormGroup row className={classes.root}>
-          {/* <FormControlLabel
-            control={
-              <Checkbox
-                // checked={}
-                // onChange={}
-                // name="randomize_noise"
-                color="primary"
-              />
-            }
-            label="Randomize Noise?"
-          /> */}
           <Button variant="contained" color="primary" onClick={handleRndBtn}>
             Random
           </Button>
@@ -95,8 +86,8 @@ const Modify = ({ psi, changePsi, randomLatents, fetchImage }) => {
             getAriaValueText={valueText}
             valueLabelDisplay={valueText}
             value={psi}
-            onChange={(e, v) => changePsi(v)}
-            onChangeCommitted={handlePsiChange}
+            onChange={handlePsiChange}
+            onChangeCommitted={handlePsiChangeCommitted}
           />
         </FormGroup>
       </Paper>

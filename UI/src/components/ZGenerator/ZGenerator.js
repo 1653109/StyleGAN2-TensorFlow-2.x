@@ -24,7 +24,7 @@ const useStyles = makeStyles(theme => ({
     width: theme.spacing(3)
   },
   latents: {
-    padding: '10px',
+    padding: '35px 10px',
     display: 'inline-block',
     overflowY: 'scroll',
     height: '50vh'
@@ -96,44 +96,5 @@ const ZGenerator = ({ isFetchingInfo, fetchInfo, latentsDimensions }) => {
     </div>
   )
 }
-
-// class ZGenerator extends React.Component {
-//   componentDidMount() {
-//     const { fetchInfo } = this.props
-//     fetchInfo()
-//   }
-
-//   render() {
-//     const { isFetchingInfo } = this.props
-
-//     let render
-
-//     if (isFetchingInfo) {
-//       render = <Loading />
-//     } else {
-//       render = (
-//         <Grid container spacing={3}>
-//           <Grid item xs={4}>
-//             <Logo modelName="Logo" descrition="Generate from Z latents" />
-//           </Grid>
-//           <Grid item xs={8}>
-//             <Modify />
-//           </Grid>
-//         </Grid>
-//       )
-//     }
-
-//     return (
-//       <div style={{
-//         height: 'calc(95vh - 61px)',
-//         padding: '30px',
-//         overflow: 'hidden',
-//         position: 'relative'
-//       }}>
-//         {render}
-//       </div>
-//     )
-//   }
-// }
 
 export default ZGenerator
